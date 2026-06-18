@@ -1,16 +1,18 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', '*')
     
-    if (req.method === 'OPTIONS') return res.status(200).end()
-    
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end()
+    }
+
     const { phone, code } = req.body
-    
+
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
     const serviceSid = process.env.TWILIO_SERVICE_SID
-    
+
     const response = await fetch(
         `https://verify.twilio.com/v2/Services/${serviceSid}/VerificationCheck`,
         {
@@ -22,7 +24,18 @@ export default async function handler(req, res) {
             body: `To=${encodeURIComponent(phone)}&Code=${encodeURIComponent(code)}`
         }
     )
-    
+
     const data = await response.json()
-    res.json({ valid: data.status === 'approved' })
+    const valid = data.status === 'approved'
+
+    // If verified, notify lawyer via Zapier
+    if (valid) {
+        await fetch("https://hooks.zapier.com/hooks/catch/26370661/4o6bfxv/", {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ phone })
+        }).catch(() => {})
+    }
+
+    return res.status(200).json({ valid })
 }
