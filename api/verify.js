@@ -28,9 +28,8 @@ module.exports = async function handler(req, res) {
     const data = await response.json()
     const valid = data.status === 'approved'
 
-    // If verified, notify lawyer via Zapier
     if (valid) {
-        await fetch("https://hooks.zapier.com/hooks/catch/26370661/4o6bfxv/", {
+        await fetch("https://hooks.zapier.com/hooks/catch/26370661/43nnwm6/", {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({ phone })
