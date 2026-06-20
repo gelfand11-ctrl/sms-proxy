@@ -29,10 +29,10 @@ module.exports = async function handler(req, res) {
     const valid = data.status === 'approved'
 
     if (valid) {
-        let summary = `New verified lead!\nPhone: ${phone}\n`
+        let summary = `Новый подтвержденный лид!\nТелефон: ${phone}\n\n`
         if (answers) {
             for (const key in answers) {
-                summary += `${key}: ${answers[key]}\n`
+                summary += `${key}\n→ ${answers[key]}\n\n`
             }
         }
 
