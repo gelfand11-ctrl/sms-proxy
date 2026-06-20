@@ -7,7 +7,7 @@ module.exports = async function handler(req, res) {
         return res.status(200).end()
     }
 
-    const { phone, code } = req.body
+    const { phone, code, answers } = req.body
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
@@ -29,10 +29,17 @@ module.exports = async function handler(req, res) {
     const valid = data.status === 'approved'
 
     if (valid) {
+        let summary = `New verified lead!\nPhone: ${phone}\n`
+        if (answers) {
+            for (const key in answers) {
+                summary += `${key}: ${answers[key]}\n`
+            }
+        }
+
         await fetch("https://hooks.zapier.com/hooks/catch/26370661/43nnwm6/", {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ phone })
+            body: JSON.stringify({ phone, summary })
         }).catch(() => {})
     }
 
