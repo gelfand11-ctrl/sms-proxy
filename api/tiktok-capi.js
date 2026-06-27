@@ -16,6 +16,17 @@ function sha256(value) {
 }
 
 module.exports = async (req, res) => {
+  // CORS headers — required for the browser to call this from compisrael.com
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Browsers send an OPTIONS preflight before the real POST — must return 200, not 405
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
