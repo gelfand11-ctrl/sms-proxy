@@ -108,6 +108,7 @@ module.exports = async (req, res) => {
       return;
     }
 
+    console.log('TikTok CAPI success:', JSON.stringify(result));
     res.status(200).json({ success: true, tiktokResponse: result });
   } catch (err) {
     console.error('TikTok CAPI handler error:', err);
