@@ -80,7 +80,6 @@ module.exports = async (req, res) => {
           },
           properties: {
             content_id: contentName ? `lead_form_${contentName}` : 'lead_form',
-            content_type: 'lead',
             content_name: contentName || undefined,
           },
         },
