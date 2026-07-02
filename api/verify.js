@@ -37,22 +37,28 @@ module.exports = async function handler(req, res) {
         }).catch(() => {})
 
         // Send WhatsApp confirmation to lead
-        await fetch(
-            `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: new URLSearchParams({
-                    From: 'whatsapp:+12182202156',
-                    To: `whatsapp:${phone}`,
-                    ContentSid: 'HX5cbcc422037e73c80ae20cb5edb8ead7',
-                    ContentVariables: '{}'
-                }).toString()
-            }
-        ).catch(() => {})
+        try {
+            const waResponse = await fetch(
+                `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        From: 'whatsapp:+12182202156',
+                        To: `whatsapp:${phone}`,
+                        ContentSid: 'HX5cbcc422037e73c80ae20cb5edb8ead7',
+                        ContentVariables: '{}'
+                    }).toString()
+                }
+            )
+            const waData = await waResponse.json()
+            console.log('WhatsApp result:', JSON.stringify(waData))
+        } catch (err) {
+            console.log('WhatsApp error:', err.message)
+        }
     }
     return res.status(200).json({ valid })
 }
