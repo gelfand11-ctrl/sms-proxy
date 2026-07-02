@@ -10,7 +10,6 @@ module.exports = async function handler(req, res) {
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
     const serviceSid = process.env.TWILIO_SERVICE_SID
-    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID
     const response = await fetch(
         `https://verify.twilio.com/v2/Services/${serviceSid}/VerificationCheck`,
         {
@@ -49,8 +48,7 @@ module.exports = async function handler(req, res) {
                     body: new URLSearchParams({
                         From: 'whatsapp:+12182202156',
                         To: `whatsapp:${phone}`,
-                        ContentSid: 'HX5cbcc422037e73c80ae20cb5edb8ead7',
-                        MessagingServiceSid: messagingServiceSid
+                        ContentSid: 'HX80028d41a2729b64eb7573fc19c0630e'
                     }).toString()
                 }
             )
