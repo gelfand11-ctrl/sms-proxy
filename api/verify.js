@@ -10,6 +10,7 @@ module.exports = async function handler(req, res) {
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
     const serviceSid = process.env.TWILIO_SERVICE_SID
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID
     const response = await fetch(
         `https://verify.twilio.com/v2/Services/${serviceSid}/VerificationCheck`,
         {
@@ -48,7 +49,8 @@ module.exports = async function handler(req, res) {
                     body: new URLSearchParams({
                         From: 'whatsapp:+12182202156',
                         To: `whatsapp:${phone}`,
-                        Body: 'Здравствуйте! Спасибо, что обратились к нам.\n\nМы получили ваши данные и уже начали проверку возможности получения компенсации по вашему случаю. В ближайшее время с вами свяжется адвокат-эксперт, чтобы обсудить детали и оценить перспективы дела.\n\nПожалуйста, будьте на связи. Мы сделаем всё возможное, чтобы защитить ваши права. ВАШЕ ПРАВО НА КОМПЕНСАЦИЮ'
+                        ContentSid: 'HX5cbcc422037e73c80ae20cb5edb8ead7',
+                        MessagingServiceSid: messagingServiceSid
                     }).toString()
                 }
             )
