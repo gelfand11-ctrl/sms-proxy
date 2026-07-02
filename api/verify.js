@@ -36,7 +36,6 @@ module.exports = async function handler(req, res) {
             body: JSON.stringify({ phone, summary })
         }).catch(() => {})
 
-        // Send WhatsApp confirmation to lead
         try {
             const waResponse = await fetch(
                 `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
@@ -49,8 +48,7 @@ module.exports = async function handler(req, res) {
                     body: new URLSearchParams({
                         From: 'whatsapp:+12182202156',
                         To: `whatsapp:${phone}`,
-                        ContentSid: 'HX5cbcc422037e73c80ae20cb5edb8ead7',
-                        ContentVariables: '{}'
+                        Body: 'Здравствуйте! Спасибо, что обратились к нам.\n\nМы получили ваши данные и уже начали проверку возможности получения компенсации по вашему случаю. В ближайшее время с вами свяжется адвокат-эксперт, чтобы обсудить детали и оценить перспективы дела.\n\nПожалуйста, будьте на связи. Мы сделаем всё возможное, чтобы защитить ваши права. ВАШЕ ПРАВО НА КОМПЕНСАЦИЮ'
                     }).toString()
                 }
             )
