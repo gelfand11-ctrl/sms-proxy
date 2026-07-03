@@ -1,8 +1,6 @@
 // /api/meta-capi.js
 // Server-side Meta Conversions API (CAPI) endpoint.
-
 const crypto = require('crypto');
-
 const META_PIXEL_ID = process.env.META_PIXEL_ID;
 const META_CAPI_ACCESS_TOKEN = process.env.META_CAPI_ACCESS_TOKEN;
 
@@ -28,16 +26,16 @@ module.exports = async (req, res) => {
 
   try {
     const {
-      eventName,      // 'Lead' | 'Contact' | 'ViewContent'
-      eventId,        // for deduplication with browser fbq() call
-      phone,          // E.164 format, e.g. +9725xxxxxxxx
-      pageUrl,        // URL of the page where the event happened
-      userAgent,      // client user agent
-      ip,             // client IP
-      fbclid,         // Facebook click ID from URL params
-      fbc,            // _fbc cookie value
-      fbp,            // _fbp cookie value
-      contentName,    // 'dtp' | 'work' | 'medical'
+      eventName,
+      eventId,
+      phone,
+      pageUrl,
+      userAgent,
+      ip,
+      fbclid,
+      fbc,
+      fbp,
+      contentName,
     } = req.body;
 
     if (!pageUrl || !eventName) {
@@ -80,12 +78,12 @@ module.exports = async (req, res) => {
     const result = await response.json();
 
     if (result.error) {
-      console.error('Meta CAPI error:', result.error);
+      console.error(`Meta CAPI error [${eventName}]:`, result.error);
       res.status(502).json({ error: 'Meta CAPI rejected event', details: result.error });
       return;
     }
 
-    console.log('Meta CAPI success:', JSON.stringify(result));
+    console.log(`Meta CAPI success [${eventName}]:`, JSON.stringify(result));
     res.status(200).json({ success: true, metaResponse: result });
   } catch (err) {
     console.error('Meta CAPI handler error:', err);
