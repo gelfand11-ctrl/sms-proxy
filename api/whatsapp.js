@@ -17,6 +17,8 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Missing phone number' })
     }
 
+    const cleanPhone = phone.toString().trim().replace(/\s+/g, '').replace(/\n/g, '').replace(/\r/g, '')
+
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
 
@@ -31,7 +33,7 @@ module.exports = async function handler(req, res) {
                 },
                 body: new URLSearchParams({
                     From: 'whatsapp:+12182202156',
-                    To: `whatsapp:${phone}`,
+                    To: `whatsapp:${cleanPhone}`,
                     ContentSid: 'HX80028d41a2729b64eb7573fc19c0630e'
                 }).toString()
             }
