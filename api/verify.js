@@ -35,7 +35,6 @@ module.exports = async function handler(req, res) {
             headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({ phone, summary })
         }).catch(() => {})
-
         try {
             const waResponse = await fetch(
                 `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
@@ -46,7 +45,7 @@ module.exports = async function handler(req, res) {
                         'Content-Type': 'application/x-www-form-urlencoded'
                     },
                     body: new URLSearchParams({
-                        From: 'whatsapp:+12182202156',
+                        From: 'whatsapp:+972535661893',
                         To: `whatsapp:${phone}`,
                         ContentSid: 'HX80028d41a2729b64eb7573fc19c0630e'
                     }).toString()
