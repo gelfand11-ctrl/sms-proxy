@@ -6,7 +6,7 @@ module.exports = async function handler(req, res) {
     if (req.method === 'OPTIONS') {
         return res.status(200).end()
     }
-    const { phone, code, answers } = req.body
+    const { phone, code, answers, vertical, utm_source } = req.body
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
     const serviceSid = process.env.TWILIO_SERVICE_SID
@@ -33,7 +33,7 @@ module.exports = async function handler(req, res) {
         await fetch("https://hooks.zapier.com/hooks/catch/26370661/43nnwm6/", {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ phone, summary })
+            body: JSON.stringify({ phone, summary, vertical, utm_source })
         }).catch(() => {})
         try {
             const waResponse = await fetch(
