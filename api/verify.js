@@ -30,10 +30,11 @@ module.exports = async function handler(req, res) {
                 summary += `${key}\n→ ${answers[key]}\n\n`
             }
         }
+        const leadName = answers?.["Полное имя"] || ""
         await fetch("https://hooks.zapier.com/hooks/catch/26370661/43nnwm6/", {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ phone, summary, vertical, utm_source })
+            body: JSON.stringify({ phone, summary, vertical, utm_source, leadName })
         }).catch(() => {})
         try {
             const waResponse = await fetch(
