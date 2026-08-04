@@ -66,7 +66,6 @@ module.exports = async (req, res) => {
           },
         },
       ],
-      test_event_code: 'TEST83201', // TEMPORARY — remove after testing
     };
 
     const response = await fetch(
