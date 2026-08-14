@@ -14,7 +14,8 @@ module.exports = async function handler(req, res) {
     const { sheetId, name, phone, vertical } = req.body
 
     if (!sheetId) {
-        return res.status(400).json({ error: 'Missing sheetId' })
+        console.log('add-lead-to-sheet: no sheetId provided, skipping write for', name, phone, vertical)
+        return res.status(200).json({ success: true, skipped: true, reason: 'no sheetId' })
     }
 
     try {
