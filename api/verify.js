@@ -23,9 +23,7 @@ module.exports = async function handler(req, res) {
     )
     const data = await response.json()
     const valid = data.status === 'approved'
-
     let alreadyExists = false
-
     if (valid) {
         // ---- Check for duplicate lead BEFORE sending any notifications ----
         try {
@@ -39,7 +37,6 @@ module.exports = async function handler(req, res) {
         } catch (err) {
             console.log('Duplicate check error:', err.message)
         }
-
         if (!alreadyExists) {
             let summary = `Новый подтвержденный лид!\nТелефон: ${phone}\n\n`
             if (answers) {
@@ -65,7 +62,7 @@ module.exports = async function handler(req, res) {
                         body: new URLSearchParams({
                             From: 'whatsapp:+972535661893',
                             To: `whatsapp:${phone}`,
-                            ContentSid: 'HX80028d41a2729b64eb7573fc19c0630e'
+                            ContentSid: 'HX24b6e5b5ea54603b826237c5a54cef2a'
                         }).toString()
                     }
                 )
@@ -78,6 +75,5 @@ module.exports = async function handler(req, res) {
             console.log('Duplicate lead - skipping notifications:', phone)
         }
     }
-
     return res.status(200).json({ valid, alreadyExists })
 }
