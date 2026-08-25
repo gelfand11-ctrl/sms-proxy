@@ -27,7 +27,7 @@ module.exports = async function handler(req, res) {
                 body: new URLSearchParams({
                     From: 'whatsapp:+972535661893',
                     To: `whatsapp:${cleanPhone}`,
-                    ContentSid: 'HX80028d41a2729b64eb7573fc19c0630e'
+                    ContentSid: 'HX24b6e5b5ea54603b826237c5a54cef2a'
                 }).toString()
             }
         )
