@@ -9,11 +9,16 @@ function sha256(value) {
   return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
 }
 
+function buildFbc(fbc, fbclid) {
+  if (fbc) return fbc;
+  if (fbclid) return `fb.1.${Math.floor(Date.now() / 1000)}.${fbclid}`;
+  return undefined;
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -22,7 +27,6 @@ module.exports = async (req, res) => {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
-
   try {
     const {
       eventName,
@@ -36,15 +40,12 @@ module.exports = async (req, res) => {
       fbp,
       contentName,
     } = req.body;
-
     if (!pageUrl || !eventName) {
       res.status(400).json({ error: 'Missing required fields' });
       return;
     }
-
     const finalIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
     const finalUserAgent = userAgent || req.headers['user-agent'];
-
     const payload = {
       data: [
         {
@@ -57,7 +58,7 @@ module.exports = async (req, res) => {
             ph: sha256(phone),
             client_ip_address: finalIp || undefined,
             client_user_agent: finalUserAgent || undefined,
-            fbc: fbc || undefined,
+            fbc: buildFbc(fbc, fbclid),
             fbp: fbp || undefined,
           },
           custom_data: {
@@ -67,7 +68,6 @@ module.exports = async (req, res) => {
         },
       ],
     };
-
     const response = await fetch(
       `https://graph.facebook.com/v19.0/${META_PIXEL_ID}/events?access_token=${META_CAPI_ACCESS_TOKEN}`,
       {
@@ -76,15 +76,12 @@ module.exports = async (req, res) => {
         body: JSON.stringify(payload),
       }
     );
-
     const result = await response.json();
-
     if (result.error) {
       console.error(`Meta CAPI error [${eventName}]:`, result.error);
       res.status(502).json({ error: 'Meta CAPI rejected event', details: result.error });
       return;
     }
-
     console.log(`Meta CAPI success [${eventName}]:`, JSON.stringify(result));
     res.status(200).json({ success: true, metaResponse: result });
   } catch (err) {
