@@ -8,13 +8,14 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' })
     }
-    const { phone } = req.body
+    const { phone, messagePhrase } = req.body
     if (!phone) {
         return res.status(400).json({ error: 'Missing phone number' })
     }
     const cleanPhone = phone.toString().trim().replace(/\s+/g, '').replace(/\n/g, '').replace(/\r/g, '')
     const accountSid = process.env.TWILIO_ACCOUNT_SID
     const authToken = process.env.TWILIO_AUTH_TOKEN
+    const finalPhrase = messagePhrase || 'представитель юридической компании, с которой мы сотрудничаем'
     try {
         const waResponse = await fetch(
             `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
@@ -27,7 +28,8 @@ module.exports = async function handler(req, res) {
                 body: new URLSearchParams({
                     From: 'whatsapp:+972535661893',
                     To: `whatsapp:${cleanPhone}`,
-                    ContentSid: 'HX24b6e5b5ea54603b826237c5a54cef2a'
+                    ContentSid: 'HXe9bbe892d6a9877b25171fcfd0e39959',
+                    ContentVariables: JSON.stringify({ "1": finalPhrase })
                 }).toString()
             }
         )
