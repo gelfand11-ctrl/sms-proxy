@@ -50,27 +50,6 @@ module.exports = async function handler(req, res) {
                 headers: { 'Content-Type': 'text/plain' },
                 body: JSON.stringify({ phone, summary, vertical, utm_source, leadName })
             }).catch(() => {})
-            try {
-                const waResponse = await fetch(
-                    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
-                        body: new URLSearchParams({
-                            From: 'whatsapp:+972535661893',
-                            To: `whatsapp:${phone}`,
-                            ContentSid: 'HX24b6e5b5ea54603b826237c5a54cef2a'
-                        }).toString()
-                    }
-                )
-                const waData = await waResponse.json()
-                console.log('WhatsApp result:', JSON.stringify(waData))
-            } catch (err) {
-                console.log('WhatsApp error:', err.message)
-            }
         } else {
             console.log('Duplicate lead - skipping notifications:', phone)
         }
