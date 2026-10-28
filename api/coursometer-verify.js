@@ -27,6 +27,42 @@ function findAnswer(answers, keyword) {
     return key ? toText(answers[key]) : ''
 }
 
+async function sendWhatsApp({ accountSid, authToken, from, templateSid, to, firstName }) {
+    if (!from || !templateSid) {
+        console.log('Coursometer WhatsApp: missing env variables, skipping')
+        return false
+    }
+    try {
+        const response = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+            {
+                method: 'POST',
+                headers: {
+                    Authorization:
+                        'Basic ' +
+                        Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    From: from,
+                    To: 'whatsapp:' + to,
+                    ContentSid: templateSid,
+                    ContentVariables: JSON.stringify({ 1: firstName || 'שלום' }),
+                }).toString(),
+            }
+        )
+        const data = await response.json()
+        if (!response.ok) {
+            console.log('Coursometer WhatsApp: Twilio error', data.code, data.message)
+            return false
+        }
+        return true
+    } catch (err) {
+        console.log('Coursometer WhatsApp: exception', err.message)
+        return false
+    }
+}
+
 export default async function handler(req, res) {
     setCors(res)
     if (req.method === 'OPTIONS') return res.status(200).end()
@@ -38,6 +74,8 @@ export default async function handler(req, res) {
     const authToken = process.env.TWILIO_AUTH_TOKEN
     const serviceSid = process.env.TWILIO_SERVICE_SID_COURSOMETER
     const zapierHook = process.env.ZAPIER_HOOK_COURSOMETER
+    const waFrom = process.env.TWILIO_WA_FROM_COURSOMETER
+    const waTemplate = process.env.TWILIO_WA_TEMPLATE_COURSOMETER
 
     if (!accountSid || !authToken || !serviceSid) {
         console.log('Coursometer verify: missing env variables')
@@ -92,10 +130,22 @@ export default async function handler(req, res) {
         examDate.includes('מאוחר') || examDate.includes('לא החלטתי')
     const intent = lowIntent ? 'low' : 'high'
 
+    const name = findAnswer(answers, 'שם מלא')
+    const firstName = name.trim().split(/\s+/)[0] || ''
+
+    const whatsappSent = await sendWhatsApp({
+        accountSid,
+        authToken,
+        from: waFrom,
+        templateSid: waTemplate,
+        to: phone,
+        firstName,
+    })
+
     const lead = {
         phone,
         phone_local: '0' + phone.slice(4),
-        name: findAnswer(answers, 'שם מלא'),
+        name,
         intent,
         first_time: findAnswer(answers, 'הפעם הראשונה'),
         previous_score: findAnswer(answers, 'הציון הקודם'),
@@ -114,6 +164,7 @@ export default async function handler(req, res) {
         ttclid: toText(attribution.ttclid),
         platform: toText(body.platform),
         event_id: toText(body.eventId),
+        whatsapp_sent: whatsappSent ? 'true' : 'false',
         submitted_at: new Date().toISOString(),
     }
 
