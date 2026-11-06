@@ -152,6 +152,7 @@ function leadDetailsHtml(lead) {
         row('מועד בחינה', lead.exam_date) +
         row('פעם ראשונה או שיפור', lead.first_time) +
         row('ציון קודם', lead.previous_score) +
+        row('ציון יעד', lead.target_score) +
         row('אזור', lead.area) +
         row('מה עושה כרגע', lead.current_status)
     )
@@ -173,7 +174,7 @@ function alertEmailHtml(title, text, lead) {
 </div>`
 }
 
-/* ---------------- Lead processing (replaces Zapier) ---------------- */
+/* ---------------- Lead processing ---------------- */
 
 async function processLead(lead) {
     const db = airtable()
@@ -196,6 +197,7 @@ async function processLead(lead) {
         'Intent': lead.intent,
         'First Time': lead.first_time,
         'Previous Score': lead.previous_score,
+        'Target Score': lead.target_score,
         'Exam Date': lead.exam_date,
         'Study Mode': lead.study_mode,
         'Area': lead.area,
@@ -265,7 +267,7 @@ async function processLead(lead) {
                     exam_date: lead.exam_date,
                     first_time: lead.first_time,
                     previous_score: lead.previous_score,
-                    study_mode: lead.study_mode,
+                    target_score: lead.target_score,
                     area: lead.area,
                     current_status: lead.current_status,
                     intent: lead.intent,
@@ -393,6 +395,7 @@ export default async function handler(req, res) {
         intent,
         first_time: findAnswer(answers, 'הפעם הראשונה'),
         previous_score: findAnswer(answers, 'הציון הקודם'),
+        target_score: findAnswer(answers, 'מכוו'),
         exam_date: examDate,
         study_mode: findAnswer(answers, 'ללמוד'),
         area: findAnswer(answers, 'אזור'),
