@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer'
 
+const LOW_PACKAGE_THRESHOLD = 8
+
 function setCors(res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -174,6 +176,14 @@ function alertEmailHtml(title, text, lead) {
 </div>`
 }
 
+function lowPackageEmailHtml(clientName, remaining, packageSize) {
+    return `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">
+<h2 style="color:#D97706;">החבילה של ${escapeHtml(clientName)} מתקרבת לסיום</h2>
+<p>נשארו <b>${escapeHtml(remaining)}</b> לידים מתוך חבילה של ${escapeHtml(packageSize)}.</p>
+<p>כדאי לפנות ללקוח לגבי המשך או חבילה חדשה, לפני שהלידים נעצרים.</p>
+</div>`
+}
+
 /* ---------------- Lead processing ---------------- */
 
 async function processLead(lead) {
@@ -304,6 +314,28 @@ async function processLead(lead) {
     // 6. Mark as sent
     if (delivered) {
         await db.update('Leads', record.id, { 'Sent To Client': true })
+    }
+
+    // 7. Low package alert (to admin only)
+    try {
+        const remainingBefore = Number(cf['Remaining'])
+        if (Number.isFinite(remainingBefore)) {
+            const remainingAfter = remainingBefore - 1
+            if (remainingAfter === LOW_PACKAGE_THRESHOLD) {
+                const clientName = cf['Client Name'] || 'המכון'
+                await mail.send({
+                    to: mail.admin,
+                    subject: `לחבילה של ${clientName} נשארו ${remainingAfter} לידים`,
+                    html: lowPackageEmailHtml(
+                        clientName,
+                        remainingAfter,
+                        cf['Package Size'] ?? ''
+                    ),
+                })
+            }
+        }
+    } catch (err) {
+        console.log('Coursometer low package alert failed:', err.message)
     }
 
     return { status: delivered ? 'sent' : 'not_delivered', client: cf['Client Name'] }
