@@ -1,6 +1,9 @@
 import nodemailer from 'nodemailer'
 
+export const config = { maxDuration: 30 }
+
 const LOW_PACKAGE_THRESHOLD = 8
+const META_API_VERSION = 'v23.0'
 
 function setCors(res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
@@ -184,6 +187,92 @@ function lowPackageEmailHtml(clientName, remaining, packageSize) {
 </div>`
 }
 
+/* ---------------- Meta: immediate pause when no capacity is left ---------------- */
+
+async function pauseMetaCampaigns() {
+    const token = process.env.META_ADS_TOKEN_COURSOMETER
+    const accountId = process.env.META_AD_ACCOUNT_ID_COURSOMETER
+    if (!token || !accountId) {
+        return { skipped: true, paused: [], failed: [] }
+    }
+
+    const listParams = new URLSearchParams({
+        fields: 'id,name,status',
+        limit: '200',
+        access_token: token,
+    })
+    const listRes = await fetch(
+        `https://graph.facebook.com/${META_API_VERSION}/act_${accountId}/campaigns?${listParams.toString()}`
+    )
+    const listData = await listRes.json().catch(() => ({}))
+    if (!listRes.ok) {
+        throw new Error(`Meta list ${listRes.status}: ${JSON.stringify(listData.error || listData)}`)
+    }
+
+    const active = (listData.data || []).filter((c) => c.status === 'ACTIVE')
+    const paused = []
+    const failed = []
+
+    for (const c of active) {
+        const r = await fetch(`https://graph.facebook.com/${META_API_VERSION}/${c.id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ status: 'PAUSED', access_token: token }).toString(),
+        })
+        const d = await r.json().catch(() => ({}))
+        if (r.ok && d.success !== false) {
+            paused.push(c.name)
+        } else {
+            failed.push(c.name)
+            console.log('Coursometer: Meta pause failed', c.id, JSON.stringify(d.error || d))
+        }
+    }
+
+    return { skipped: false, paused, failed }
+}
+
+function nameListHtml(items) {
+    return items.map((n) => `• ${escapeHtml(n)}`).join('<br>')
+}
+
+async function pauseMetaIfNoCapacity(db, mail, excludeClientId) {
+    try {
+        const formula = excludeClientId ? `RECORD_ID()!='${excludeClientId}'` : ''
+        const other = await db.findOne('Clients', { view: 'Eligible', formula })
+        if (other) return
+
+        const meta = await pauseMetaCampaigns()
+        if (meta.skipped) return
+        if (meta.paused.length === 0 && meta.failed.length === 0) return
+
+        let html = `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">`
+        html += `<h2 style="color:#DC2626;">אין מכון פנוי, הקמפיינים במטא הושהו</h2>`
+        if (meta.paused.length > 0) {
+            html += `<p><b>הושהו:</b><br>${nameListHtml(meta.paused)}</p>`
+        }
+        if (meta.failed.length > 0) {
+            html += `<p style="color:#DC2626;"><b>לא הצלחתי להשהות, צריך להשהות ידנית:</b><br>${nameListHtml(meta.failed)}</p>`
+        }
+        html += `<p>הקמפיינים בגוגל יושהו בבדיקה השעתית הקרובה.</p>`
+        html += `<p>כשתגדיל חבילה או תפעיל מכון, צריך להפעיל את הקמפיינים במטא בחזרה ידנית.</p></div>`
+
+        await mail.send({
+            to: mail.admin,
+            subject: 'קורסומטר: הקמפיינים במטא הושהו',
+            html,
+        })
+    } catch (err) {
+        console.log('Coursometer: immediate Meta pause failed:', err.message)
+        try {
+            await mail.send({
+                to: mail.admin,
+                subject: 'קורסומטר: לא הצלחתי להשהות את הקמפיינים במטא',
+                html: `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px;">אין מכון פנוי, אבל ההשהיה המיידית במטא נכשלה. הבדיקה השעתית תנסה שוב, אבל כדאי להשהות ידנית.<br><br>השגיאה: ${escapeHtml(err.message)}</div>`,
+            })
+        } catch {}
+    }
+}
+
 /* ---------------- Lead processing ---------------- */
 
 async function processLead(lead) {
@@ -243,6 +332,7 @@ async function processLead(lead) {
                 lead
             ),
         })
+        await pauseMetaIfNoCapacity(db, mail, null)
         return { status: 'no_client' }
     }
 
@@ -317,8 +407,8 @@ async function processLead(lead) {
     }
 
     // 7. Low package alert (to admin only)
+    const remainingBefore = Number(cf['Remaining'])
     try {
-        const remainingBefore = Number(cf['Remaining'])
         if (Number.isFinite(remainingBefore)) {
             const remainingAfter = remainingBefore - 1
             if (remainingAfter === LOW_PACKAGE_THRESHOLD) {
@@ -336,6 +426,11 @@ async function processLead(lead) {
         }
     } catch (err) {
         console.log('Coursometer low package alert failed:', err.message)
+    }
+
+    // 8. If this lead closed the client's package, pause Meta right away when no other client is free
+    if (Number.isFinite(remainingBefore) && remainingBefore - 1 <= 0) {
+        await pauseMetaIfNoCapacity(db, mail, client.id)
     }
 
     return { status: delivered ? 'sent' : 'not_delivered', client: cf['Client Name'] }
