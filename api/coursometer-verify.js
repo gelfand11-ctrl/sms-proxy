@@ -4,6 +4,7 @@ export const config = { maxDuration: 30 }
 
 const LOW_PACKAGE_THRESHOLD = 8
 const META_API_VERSION = 'v23.0'
+const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3'
 
 function setCors(res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
@@ -187,7 +188,7 @@ function lowPackageEmailHtml(clientName, remaining, packageSize) {
 </div>`
 }
 
-/* ---------------- Meta: immediate pause when no capacity is left ---------------- */
+/* ---------------- Meta + TikTok: immediate pause when no capacity is left ---------------- */
 
 async function pauseMetaCampaigns() {
     const token = process.env.META_ADS_TOKEN_COURSOMETER
@@ -231,45 +232,118 @@ async function pauseMetaCampaigns() {
     return { skipped: false, paused, failed }
 }
 
+async function pauseTikTokCampaigns() {
+    const token = process.env.TIKTOK_ADS_TOKEN_COURSOMETER
+    const advertiserId = process.env.TIKTOK_ADVERTISER_ID_COURSOMETER
+    if (!token || !advertiserId) {
+        return { skipped: true, paused: [], failed: [] }
+    }
+
+    const params = new URLSearchParams({
+        advertiser_id: advertiserId,
+        page: '1',
+        page_size: '1000',
+        fields: JSON.stringify(['campaign_id', 'campaign_name', 'operation_status']),
+    })
+    const listRes = await fetch(`${TIKTOK_API_BASE}/campaign/get/?${params.toString()}`, {
+        headers: { 'Access-Token': token },
+    })
+    const listData = await listRes.json().catch(() => ({}))
+    if (!listRes.ok || listData.code !== 0) {
+        throw new Error(`TikTok list ${listRes.status}: ${listData.code} ${listData.message || ''}`)
+    }
+
+    const list = (listData.data && listData.data.list) || []
+    const active = list.filter((c) => c.operation_status === 'ENABLE')
+    const paused = []
+    const failed = []
+
+    for (let i = 0; i < active.length; i += 20) {
+        const batch = active.slice(i, i + 20)
+        const r = await fetch(`${TIKTOK_API_BASE}/campaign/status/update/`, {
+            method: 'POST',
+            headers: { 'Access-Token': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                advertiser_id: advertiserId,
+                campaign_ids: batch.map((c) => c.campaign_id),
+                operation_status: 'DISABLE',
+            }),
+        })
+        const d = await r.json().catch(() => ({}))
+        if (r.ok && d.code === 0) {
+            batch.forEach((c) => paused.push(c.campaign_name))
+        } else {
+            batch.forEach((c) => failed.push(c.campaign_name))
+            console.log('Coursometer: TikTok pause failed', d.code, d.message)
+        }
+    }
+
+    return { skipped: false, paused, failed }
+}
+
+async function runSafely(fn) {
+    try {
+        return await fn()
+    } catch (err) {
+        return { skipped: false, paused: [], failed: [], error: err.message }
+    }
+}
+
 function nameListHtml(items) {
     return items.map((n) => `• ${escapeHtml(n)}`).join('<br>')
 }
 
-async function pauseMetaIfNoCapacity(db, mail, excludeClientId) {
+function hasNews(result) {
+    if (result.error) return true
+    if (result.skipped) return false
+    return result.paused.length > 0 || result.failed.length > 0
+}
+
+function platformSectionHtml(platformName, result) {
+    if (result.error) {
+        return `<p style="color:#DC2626;"><b>${platformName}: ההשהיה נכשלה, צריך להשהות ידנית.</b><br>השגיאה: ${escapeHtml(result.error)}</p>`
+    }
+    if (result.skipped) return ''
+    let html = ''
+    if (result.paused.length > 0) {
+        html += `<p><b>${platformName}, הושהו:</b><br>${nameListHtml(result.paused)}</p>`
+    }
+    if (result.failed.length > 0) {
+        html += `<p style="color:#DC2626;"><b>${platformName}, לא הצלחתי להשהות, צריך להשהות ידנית:</b><br>${nameListHtml(result.failed)}</p>`
+    }
+    return html
+}
+
+async function pauseSocialIfNoCapacity(db, mail, excludeClientId) {
     try {
         const formula = excludeClientId ? `RECORD_ID()!='${excludeClientId}'` : ''
         const other = await db.findOne('Clients', { view: 'Eligible', formula })
         if (other) return
+    } catch (err) {
+        console.log('Coursometer: capacity check before pause failed:', err.message)
+        return
+    }
 
-        const meta = await pauseMetaCampaigns()
-        if (meta.skipped) return
-        if (meta.paused.length === 0 && meta.failed.length === 0) return
+    const meta = await runSafely(pauseMetaCampaigns)
+    const tiktok = await runSafely(pauseTikTokCampaigns)
 
-        let html = `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">`
-        html += `<h2 style="color:#DC2626;">אין מכון פנוי, הקמפיינים במטא הושהו</h2>`
-        if (meta.paused.length > 0) {
-            html += `<p><b>הושהו:</b><br>${nameListHtml(meta.paused)}</p>`
-        }
-        if (meta.failed.length > 0) {
-            html += `<p style="color:#DC2626;"><b>לא הצלחתי להשהות, צריך להשהות ידנית:</b><br>${nameListHtml(meta.failed)}</p>`
-        }
-        html += `<p>הקמפיינים בגוגל יושהו בבדיקה השעתית הקרובה.</p>`
-        html += `<p>כשתגדיל חבילה או תפעיל מכון, צריך להפעיל את הקמפיינים במטא בחזרה ידנית.</p></div>`
+    if (!hasNews(meta) && !hasNews(tiktok)) return
 
+    let html = `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">`
+    html += `<h2 style="color:#DC2626;">אין מכון פנוי, הקמפיינים הושהו</h2>`
+    html += platformSectionHtml('מטא', meta)
+    html += platformSectionHtml('טיקטוק', tiktok)
+    html += `<p>הקמפיינים בגוגל יושהו בבדיקה השעתית הקרובה.</p>`
+    html += `<p>כשתגדיל חבילה או תפעיל מכון, צריך להפעיל את הקמפיינים במטא ובטיקטוק בחזרה ידנית.</p></div>`
+
+    try {
         await mail.send({
             to: mail.admin,
-            subject: 'קורסומטר: הקמפיינים במטא הושהו',
+            subject: 'קורסומטר: אין מכון פנוי, הקמפיינים הושהו',
             html,
         })
     } catch (err) {
-        console.log('Coursometer: immediate Meta pause failed:', err.message)
-        try {
-            await mail.send({
-                to: mail.admin,
-                subject: 'קורסומטר: לא הצלחתי להשהות את הקמפיינים במטא',
-                html: `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px;">אין מכון פנוי, אבל ההשהיה המיידית במטא נכשלה. הבדיקה השעתית תנסה שוב, אבל כדאי להשהות ידנית.<br><br>השגיאה: ${escapeHtml(err.message)}</div>`,
-            })
-        } catch {}
+        console.log('Coursometer: pause email failed:', err.message)
     }
 }
 
@@ -332,7 +406,7 @@ async function processLead(lead) {
                 lead
             ),
         })
-        await pauseMetaIfNoCapacity(db, mail, null)
+        await pauseSocialIfNoCapacity(db, mail, null)
         return { status: 'no_client' }
     }
 
@@ -428,9 +502,9 @@ async function processLead(lead) {
         console.log('Coursometer low package alert failed:', err.message)
     }
 
-    // 8. If this lead closed the client's package, pause Meta right away when no other client is free
+    // 8. If this lead closed the client's package, pause Meta and TikTok right away when no other client is free
     if (Number.isFinite(remainingBefore) && remainingBefore - 1 <= 0) {
-        await pauseMetaIfNoCapacity(db, mail, client.id)
+        await pauseSocialIfNoCapacity(db, mail, client.id)
     }
 
     return { status: delivered ? 'sent' : 'not_delivered', client: cf['Client Name'] }
