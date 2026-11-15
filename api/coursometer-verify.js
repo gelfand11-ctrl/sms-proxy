@@ -232,6 +232,48 @@ async function pauseMetaCampaigns() {
     return { skipped: false, paused, failed }
 }
 
+async function tiktokListCampaigns(path, advertiserId, token, withFields) {
+    const params = new URLSearchParams({
+        advertiser_id: advertiserId,
+        page: '1',
+        page_size: '1000',
+    })
+    if (withFields) {
+        params.set('fields', JSON.stringify(['campaign_id', 'campaign_name', 'operation_status']))
+    }
+    const r = await fetch(`${TIKTOK_API_BASE}${path}?${params.toString()}`, {
+        headers: { 'Access-Token': token },
+    })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok || d.code !== 0) {
+        throw new Error(`TikTok ${path} ${r.status}: ${d.code} ${d.message || ''}`)
+    }
+    return (d.data && d.data.list) || []
+}
+
+async function tiktokDisableBatch(path, advertiserId, token, campaigns, paused, failed) {
+    for (let i = 0; i < campaigns.length; i += 20) {
+        const batch = campaigns.slice(i, i + 20)
+        const r = await fetch(`${TIKTOK_API_BASE}${path}`, {
+            method: 'POST',
+            headers: { 'Access-Token': token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                advertiser_id: advertiserId,
+                campaign_ids: batch.map((c) => String(c.campaign_id)),
+                operation_status: 'DISABLE',
+            }),
+        })
+        const d = await r.json().catch(() => ({}))
+        const names = batch.map((c) => c.campaign_name || String(c.campaign_id))
+        if (r.ok && d.code === 0) {
+            names.forEach((n) => paused.push(n))
+        } else {
+            names.forEach((n) => failed.push(n))
+            console.log('Coursometer: TikTok pause failed', path, d.code, d.message)
+        }
+    }
+}
+
 async function pauseTikTokCampaigns() {
     const token = process.env.TIKTOK_ADS_TOKEN_COURSOMETER
     const advertiserId = process.env.TIKTOK_ADVERTISER_ID_COURSOMETER
@@ -239,43 +281,30 @@ async function pauseTikTokCampaigns() {
         return { skipped: true, paused: [], failed: [] }
     }
 
-    const params = new URLSearchParams({
-        advertiser_id: advertiserId,
-        page: '1',
-        page_size: '1000',
-        fields: JSON.stringify(['campaign_id', 'campaign_name', 'operation_status']),
-    })
-    const listRes = await fetch(`${TIKTOK_API_BASE}/campaign/get/?${params.toString()}`, {
-        headers: { 'Access-Token': token },
-    })
-    const listData = await listRes.json().catch(() => ({}))
-    if (!listRes.ok || listData.code !== 0) {
-        throw new Error(`TikTok list ${listRes.status}: ${listData.code} ${listData.message || ''}`)
+    let smartList = []
+    let smartError = ''
+    try {
+        smartList = await tiktokListCampaigns('/smart_plus/campaign/get/', advertiserId, token, false)
+    } catch (err) {
+        smartError = err.message
     }
 
-    const list = (listData.data && listData.data.list) || []
-    const active = list.filter((c) => c.operation_status === 'ENABLE')
+    const standardList = await tiktokListCampaigns('/campaign/get/', advertiserId, token, true)
+
+    const smartIds = new Set(smartList.map((c) => String(c.campaign_id)))
+    const smartActive = smartList.filter((c) => c.operation_status === 'ENABLE')
+    const standardActive = standardList.filter(
+        (c) => c.operation_status === 'ENABLE' && !smartIds.has(String(c.campaign_id))
+    )
+
     const paused = []
     const failed = []
 
-    for (let i = 0; i < active.length; i += 20) {
-        const batch = active.slice(i, i + 20)
-        const r = await fetch(`${TIKTOK_API_BASE}/campaign/status/update/`, {
-            method: 'POST',
-            headers: { 'Access-Token': token, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                advertiser_id: advertiserId,
-                campaign_ids: batch.map((c) => c.campaign_id),
-                operation_status: 'DISABLE',
-            }),
-        })
-        const d = await r.json().catch(() => ({}))
-        if (r.ok && d.code === 0) {
-            batch.forEach((c) => paused.push(c.campaign_name))
-        } else {
-            batch.forEach((c) => failed.push(c.campaign_name))
-            console.log('Coursometer: TikTok pause failed', d.code, d.message)
-        }
+    await tiktokDisableBatch('/smart_plus/campaign/status/update/', advertiserId, token, smartActive, paused, failed)
+    await tiktokDisableBatch('/campaign/status/update/', advertiserId, token, standardActive, paused, failed)
+
+    if (smartError) {
+        failed.push(`לא הצלחתי לבדוק קמפייני Smart+, כדאי לבדוק ידנית (${smartError})`)
     }
 
     return { skipped: false, paused, failed }
