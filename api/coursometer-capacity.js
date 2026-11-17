@@ -3,6 +3,27 @@ import nodemailer from 'nodemailer'
 const META_API_VERSION = 'v23.0'
 const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3'
 
+const VERTICALS = {
+    psychometric: {
+        key: 'psychometric',
+        clientsTable: 'Clients',
+        metaAccountEnv: 'META_AD_ACCOUNT_ID_COURSOMETER',
+        tiktokAdvertiserEnv: 'TIKTOK_ADVERTISER_ID_COURSOMETER',
+    },
+    bagrut: {
+        key: 'bagrut',
+        clientsTable: 'Clients Bagrut',
+        metaAccountEnv: 'META_AD_ACCOUNT_ID_COURSOMETER_BAGRUT',
+        tiktokAdvertiserEnv: 'TIKTOK_ADVERTISER_ID_COURSOMETER_BAGRUT',
+    },
+}
+
+function getVertical(value) {
+    return String(value || '').toLowerCase() === 'bagrut'
+        ? VERTICALS.bagrut
+        : VERTICALS.psychometric
+}
+
 async function sendAdminEmail(subject, html) {
     const user = process.env.GMAIL_USER_COURSOMETER
     const pass = process.env.GMAIL_APP_PASSWORD_COURSOMETER
@@ -27,9 +48,9 @@ function escapeHtml(s) {
         .replace(/"/g, '&quot;')
 }
 
-async function pauseMetaCampaigns() {
+async function pauseMetaCampaigns(v) {
     const token = process.env.META_ADS_TOKEN_COURSOMETER
-    const accountId = process.env.META_AD_ACCOUNT_ID_COURSOMETER
+    const accountId = process.env[v.metaAccountEnv]
     if (!token || !accountId) {
         return { skipped: true, paused: [], failed: [] }
     }
@@ -111,9 +132,9 @@ async function tiktokDisableBatch(path, advertiserId, token, campaigns, paused, 
     }
 }
 
-async function pauseTikTokCampaigns() {
+async function pauseTikTokCampaigns(v) {
     const token = process.env.TIKTOK_ADS_TOKEN_COURSOMETER
-    const advertiserId = process.env.TIKTOK_ADVERTISER_ID_COURSOMETER
+    const advertiserId = process.env[v.tiktokAdvertiserEnv]
     if (!token || !advertiserId) {
         return { skipped: true, paused: [], failed: [] }
     }
@@ -189,6 +210,8 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: 'unauthorized' })
     }
 
+    const v = getVertical(req.query && req.query.vertical)
+
     const token = process.env.AIRTABLE_TOKEN_COURSOMETER
     const baseId = process.env.AIRTABLE_BASE_ID_COURSOMETER
     if (!token || !baseId) {
@@ -199,37 +222,46 @@ export default async function handler(req, res) {
     try {
         const params = new URLSearchParams({ maxRecords: '1', view: 'Eligible' })
         const r = await fetch(
-            `https://api.airtable.com/v0/${baseId}/${encodeURIComponent('Clients')}?${params.toString()}`,
+            `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(v.clientsTable)}?${params.toString()}`,
             { headers: { Authorization: `Bearer ${token}` } }
         )
         const data = await r.json().catch(() => ({}))
         if (!r.ok) {
-            console.log('Coursometer capacity: Airtable error', r.status, JSON.stringify(data.error || data))
+            console.log('Coursometer capacity: Airtable error', v.key, r.status, JSON.stringify(data.error || data))
             return res.status(502).json({ error: 'airtable_error' })
         }
         available = Array.isArray(data.records) && data.records.length > 0
     } catch (err) {
-        console.log('Coursometer capacity: exception', err.message)
+        console.log('Coursometer capacity: exception', v.key, err.message)
         return res.status(500).json({ error: 'server_error' })
     }
 
     if (!available) {
-        const meta = await runSafely(pauseMetaCampaigns)
-        const tiktok = await runSafely(pauseTikTokCampaigns)
+        const meta = await runSafely(() => pauseMetaCampaigns(v))
+        const tiktok = await runSafely(() => pauseTikTokCampaigns(v))
 
         if (hasNews(meta) || hasNews(tiktok)) {
+            const isBagrut = v.key === 'bagrut'
+            const title = isBagrut
+                ? 'בגרויות: אין לקוח פנוי, הקמפיינים של הבגרויות הושהו'
+                : 'אין מכון פנוי, הקמפיינים הושהו'
             let html = `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">`
-            html += `<h2 style="color:#DC2626;">אין מכון פנוי, הקמפיינים הושהו</h2>`
+            html += `<h2 style="color:#DC2626;">${title}</h2>`
             html += platformSectionHtml('מטא', meta)
             html += platformSectionHtml('טיקטוק', tiktok)
-            html += `<p>כשתגדיל חבילה או תפעיל מכון, צריך להפעיל את הקמפיינים במטא ובטיקטוק בחזרה ידנית.</p></div>`
+            html += `<p>כשתגדיל חבילה או תפעיל לקוח, צריך להפעיל את הקמפיינים במטא ובטיקטוק בחזרה ידנית.</p></div>`
             try {
-                await sendAdminEmail('קורסומטר: אין מכון פנוי, הקמפיינים הושהו', html)
+                await sendAdminEmail(
+                    isBagrut
+                        ? 'קורסומטר בגרויות: אין לקוח פנוי, הקמפיינים הושהו'
+                        : 'קורסומטר: אין מכון פנוי, הקמפיינים הושהו',
+                    html
+                )
             } catch (err) {
                 console.log('Coursometer capacity: pause email failed', err.message)
             }
         }
     }
 
-    return res.status(200).json({ available })
+    return res.status(200).json({ available, vertical: v.key })
 }
