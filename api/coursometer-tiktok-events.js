@@ -1,10 +1,17 @@
 // /api/coursometer-tiktok-events.js
 // TikTok Events API endpoint - Coursometer only.
+// psychometric (default): same pixel, token and test code as before.
+// bagrut: uses TIKTOK_PIXEL_CODE_COURSOMETER_BAGRUT + TIKTOK_EVENTS_TOKEN_COURSOMETER_BAGRUT
+//         (optional TIKTOK_TEST_EVENT_CODE_COURSOMETER_BAGRUT).
+//         If pixel code or token is missing, the event is skipped (never sent to the psychometric pixel).
 const crypto = require('crypto');
 
 const PIXEL_CODE = 'DBJR0HBC77U0QK5QEBF0';
 const TOKEN = process.env.TIKTOK_EVENTS_TOKEN_COURSOMETER;
 const TEST_EVENT_CODE = process.env.TIKTOK_TEST_EVENT_CODE_COURSOMETER;
+const BAGRUT_PIXEL_CODE = process.env.TIKTOK_PIXEL_CODE_COURSOMETER_BAGRUT;
+const BAGRUT_TOKEN = process.env.TIKTOK_EVENTS_TOKEN_COURSOMETER_BAGRUT;
+const BAGRUT_TEST_EVENT_CODE = process.env.TIKTOK_TEST_EVENT_CODE_COURSOMETER_BAGRUT;
 const ALLOWED_EVENTS = ['ViewContent', 'Contact', 'Lead'];
 const ENDPOINT = 'https://business-api.tiktok.com/open_api/v1.3/event/track/';
 
@@ -35,11 +42,6 @@ module.exports = async (req, res) => {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
-  if (!TOKEN) {
-    console.error('Coursometer TikTok: missing TIKTOK_EVENTS_TOKEN_COURSOMETER');
-    res.status(500).json({ error: 'Server not configured' });
-    return;
-  }
 
   try {
     let body = req.body || {};
@@ -49,6 +51,31 @@ module.exports = async (req, res) => {
       } catch {
         body = {};
       }
+    }
+
+    const isBagrut = body.vertical === 'bagrut';
+
+    let pixelCode;
+    let token;
+    let testEventCode;
+    if (isBagrut) {
+      if (!BAGRUT_PIXEL_CODE || !BAGRUT_TOKEN) {
+        console.log('Coursometer TikTok: bagrut pixel not configured, event skipped');
+        res.status(200).json({ skipped: true });
+        return;
+      }
+      pixelCode = BAGRUT_PIXEL_CODE;
+      token = BAGRUT_TOKEN;
+      testEventCode = BAGRUT_TEST_EVENT_CODE;
+    } else {
+      if (!TOKEN) {
+        console.error('Coursometer TikTok: missing TIKTOK_EVENTS_TOKEN_COURSOMETER');
+        res.status(500).json({ error: 'Server not configured' });
+        return;
+      }
+      pixelCode = PIXEL_CODE;
+      token = TOKEN;
+      testEventCode = TEST_EVENT_CODE;
     }
 
     const { eventName, eventId, phone, pageUrl, referrer, userAgent, ttclid, ttp } = body;
@@ -76,9 +103,11 @@ module.exports = async (req, res) => {
       user.external_id = hashed;
     }
 
+    const contentId = isBagrut ? 'bagrut' : 'psychometric';
+
     const payload = {
       event_source: 'web',
-      event_source_id: PIXEL_CODE,
+      event_source_id: pixelCode,
       data: [
         {
           event: eventName,
@@ -92,31 +121,31 @@ module.exports = async (req, res) => {
           properties: {
             content_type: 'product',
             contents: [
-              { content_id: 'psychometric', content_name: 'psychometric_course' },
+              { content_id: contentId, content_name: contentId + '_course' },
             ],
           },
         },
       ],
     };
-    if (TEST_EVENT_CODE) payload.test_event_code = TEST_EVENT_CODE;
+    if (testEventCode) payload.test_event_code = testEventCode;
 
     const response = await fetch(ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Access-Token': TOKEN,
+        'Access-Token': token,
       },
       body: JSON.stringify(payload),
     });
     const result = await response.json().catch(() => ({}));
 
     if (!response.ok || result.code !== 0) {
-      console.error(`Coursometer TikTok error [${eventName}]:`, JSON.stringify(result));
+      console.error(`Coursometer TikTok error [${contentId}] [${eventName}]:`, JSON.stringify(result));
       res.status(502).json({ error: 'TikTok rejected event', details: result });
       return;
     }
 
-    console.log(`Coursometer TikTok success [${eventName}]:`, JSON.stringify(result));
+    console.log(`Coursometer TikTok success [${contentId}] [${eventName}]:`, JSON.stringify(result));
     res.status(200).json({ success: true });
   } catch (err) {
     console.error('Coursometer TikTok handler error:', err);
