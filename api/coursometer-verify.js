@@ -6,6 +6,37 @@ const LOW_PACKAGE_THRESHOLD = 8
 const META_API_VERSION = 'v23.0'
 const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3'
 
+/* ---------------- Verticals ---------------- */
+
+const VERTICALS = {
+    psychometric: {
+        key: 'psychometric',
+        label: 'פסיכומטרי',
+        leadsTable: 'Leads',
+        clientsTable: 'Clients',
+        waTemplateEnv: 'TWILIO_WA_TEMPLATE_COURSOMETER',
+        metaAccountEnv: 'META_AD_ACCOUNT_ID_COURSOMETER',
+        tiktokAdvertiserEnv: 'TIKTOK_ADVERTISER_ID_COURSOMETER',
+        subjectPrefix: '',
+    },
+    bagrut: {
+        key: 'bagrut',
+        label: 'בגרויות',
+        leadsTable: 'Leads Bagrut',
+        clientsTable: 'Clients Bagrut',
+        waTemplateEnv: 'TWILIO_WA_TEMPLATE_COURSOMETER_BAGRUT',
+        metaAccountEnv: 'META_AD_ACCOUNT_ID_COURSOMETER_BAGRUT',
+        tiktokAdvertiserEnv: 'TIKTOK_ADVERTISER_ID_COURSOMETER_BAGRUT',
+        subjectPrefix: 'בגרויות: ',
+    },
+}
+
+function getVertical(value) {
+    return String(value || '').toLowerCase() === 'bagrut'
+        ? VERTICALS.bagrut
+        : VERTICALS.psychometric
+}
+
 function setCors(res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -126,6 +157,80 @@ function airtable() {
     }
 }
 
+function leadRecordFields(lead) {
+    const common = {
+        'Name': lead.name,
+        'Phone': lead.phone,
+        'Phone Local': lead.phone_local,
+        'Intent': lead.intent,
+        'Exam Date': lead.exam_date,
+        'Study Mode': lead.study_mode,
+        'Area': lead.area,
+        'Platform': lead.platform,
+        'UTM Source': lead.utm_source,
+        'UTM Medium': lead.utm_medium,
+        'UTM Campaign': lead.utm_campaign,
+        'UTM Content': lead.utm_content,
+        'UTM Term': lead.utm_term,
+        'GCLID': lead.gclid,
+        'FBCLID': lead.fbclid,
+        'TTCLID': lead.ttclid,
+        'Event ID': lead.event_id,
+        'Summary': lead.summary,
+        'Submitted At': lead.submitted_at,
+        'WhatsApp Sent': lead.whatsapp_sent,
+    }
+    if (lead.vertical === 'bagrut') {
+        return {
+            ...common,
+            'Looking For': lead.looking_for,
+            'Subjects': lead.subjects,
+            'Math Units': lead.math_units,
+            'English Units': lead.english_units,
+        }
+    }
+    return {
+        ...common,
+        'First Time': lead.first_time,
+        'Previous Score': lead.previous_score,
+        'Target Score': lead.target_score,
+        'Current Status': lead.current_status,
+    }
+}
+
+function crmPayload(lead) {
+    if (lead.vertical === 'bagrut') {
+        return {
+            name: lead.name,
+            phone: lead.phone_local,
+            looking_for: lead.looking_for,
+            subjects: lead.subjects,
+            math_units: lead.math_units,
+            english_units: lead.english_units,
+            exam_date: lead.exam_date,
+            study_mode: lead.study_mode,
+            area: lead.area,
+            intent: lead.intent,
+            lead_id: lead.event_id,
+            source: 'Coursometer',
+            vertical: 'bagrut',
+        }
+    }
+    return {
+        name: lead.name,
+        phone: lead.phone_local,
+        exam_date: lead.exam_date,
+        first_time: lead.first_time,
+        previous_score: lead.previous_score,
+        target_score: lead.target_score,
+        area: lead.area,
+        current_status: lead.current_status,
+        intent: lead.intent,
+        lead_id: lead.event_id,
+        source: 'Coursometer',
+    }
+}
+
 /* ---------------- Email ---------------- */
 
 function mailer() {
@@ -152,6 +257,19 @@ function mailer() {
 function leadDetailsHtml(lead) {
     const row = (label, value) =>
         value ? `<b>${label}:</b> ${escapeHtml(value)}<br>` : ''
+    if (lead.vertical === 'bagrut') {
+        return (
+            row('שם', lead.name) +
+            row('טלפון', lead.phone_local) +
+            row('מה מחפש', lead.looking_for) +
+            row('מקצועות', lead.subjects) +
+            row('יחידות במתמטיקה', lead.math_units) +
+            row('יחידות באנגלית', lead.english_units) +
+            row('מועד בחינה', lead.exam_date) +
+            row('איך נוח ללמוד', lead.study_mode) +
+            row('אזור', lead.area)
+        )
+    }
     return (
         row('שם', lead.name) +
         row('טלפון', lead.phone_local) +
@@ -165,8 +283,9 @@ function leadDetailsHtml(lead) {
 }
 
 function clientEmailHtml(lead) {
+    const title = lead.vertical === 'bagrut' ? 'ליד בגרויות חדש מקורסומטר' : 'ליד חדש מקורסומטר'
     return `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">
-<h2 style="color:#1F6BFF;">ליד חדש מקורסומטר</h2>
+<h2 style="color:#1F6BFF;">${title}</h2>
 <p>${leadDetailsHtml(lead)}</p>
 <p style="color:#64748B; font-size:13px;">הטלפון אומת בקוד SMS. מומלץ לחזור לליד בהקדם האפשרי.</p>
 </div>`
@@ -190,9 +309,9 @@ function lowPackageEmailHtml(clientName, remaining, packageSize) {
 
 /* ---------------- Meta + TikTok: immediate pause when no capacity is left ---------------- */
 
-async function pauseMetaCampaigns() {
+async function pauseMetaCampaigns(v) {
     const token = process.env.META_ADS_TOKEN_COURSOMETER
-    const accountId = process.env.META_AD_ACCOUNT_ID_COURSOMETER
+    const accountId = process.env[v.metaAccountEnv]
     if (!token || !accountId) {
         return { skipped: true, paused: [], failed: [] }
     }
@@ -274,9 +393,9 @@ async function tiktokDisableBatch(path, advertiserId, token, campaigns, paused, 
     }
 }
 
-async function pauseTikTokCampaigns() {
+async function pauseTikTokCampaigns(v) {
     const token = process.env.TIKTOK_ADS_TOKEN_COURSOMETER
-    const advertiserId = process.env.TIKTOK_ADVERTISER_ID_COURSOMETER
+    const advertiserId = process.env[v.tiktokAdvertiserEnv]
     if (!token || !advertiserId) {
         return { skipped: true, paused: [], failed: [] }
     }
@@ -343,32 +462,41 @@ function platformSectionHtml(platformName, result) {
     return html
 }
 
-async function pauseSocialIfNoCapacity(db, mail, excludeClientId) {
+async function pauseSocialIfNoCapacity(db, mail, excludeClientId, v) {
     try {
         const formula = excludeClientId ? `RECORD_ID()!='${excludeClientId}'` : ''
-        const other = await db.findOne('Clients', { view: 'Eligible', formula })
+        const other = await db.findOne(v.clientsTable, { view: 'Eligible', formula })
         if (other) return
     } catch (err) {
         console.log('Coursometer: capacity check before pause failed:', err.message)
         return
     }
 
-    const meta = await runSafely(pauseMetaCampaigns)
-    const tiktok = await runSafely(pauseTikTokCampaigns)
+    const meta = await runSafely(() => pauseMetaCampaigns(v))
+    const tiktok = await runSafely(() => pauseTikTokCampaigns(v))
 
     if (!hasNews(meta) && !hasNews(tiktok)) return
 
+    const isBagrut = v.key === 'bagrut'
+    const title = isBagrut
+        ? 'בגרויות: אין לקוח פנוי, הקמפיינים של הבגרויות הושהו'
+        : 'אין מכון פנוי, הקמפיינים הושהו'
+
     let html = `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">`
-    html += `<h2 style="color:#DC2626;">אין מכון פנוי, הקמפיינים הושהו</h2>`
+    html += `<h2 style="color:#DC2626;">${title}</h2>`
     html += platformSectionHtml('מטא', meta)
     html += platformSectionHtml('טיקטוק', tiktok)
-    html += `<p>הקמפיינים בגוגל יושהו בבדיקה השעתית הקרובה.</p>`
-    html += `<p>כשתגדיל חבילה או תפעיל מכון, צריך להפעיל את הקמפיינים במטא ובטיקטוק בחזרה ידנית.</p></div>`
+    if (!isBagrut) {
+        html += `<p>הקמפיינים בגוגל יושהו בבדיקה השעתית הקרובה.</p>`
+    }
+    html += `<p>כשתגדיל חבילה או תפעיל לקוח, צריך להפעיל את הקמפיינים במטא ובטיקטוק בחזרה ידנית.</p></div>`
 
     try {
         await mail.send({
             to: mail.admin,
-            subject: 'קורסומטר: אין מכון פנוי, הקמפיינים הושהו',
+            subject: isBagrut
+                ? 'קורסומטר בגרויות: אין לקוח פנוי, הקמפיינים הושהו'
+                : 'קורסומטר: אין מכון פנוי, הקמפיינים הושהו',
             html,
         })
     } catch (err) {
@@ -378,49 +506,25 @@ async function pauseSocialIfNoCapacity(db, mail, excludeClientId) {
 
 /* ---------------- Lead processing ---------------- */
 
-async function processLead(lead) {
+async function processLead(lead, v) {
     const db = airtable()
     const mail = mailer()
+    const prefix = v.subjectPrefix
 
-    // 1. Duplicate check: same phone in the last 90 days
-    const duplicate = await db.findOne('Leads', {
+    // 1. Duplicate check: same phone in the last 90 days, in this vertical only
+    const duplicate = await db.findOne(v.leadsTable, {
         formula: `AND({Phone}='${lead.phone}', IS_AFTER({Submitted At}, DATEADD(NOW(), -90, 'days')))`,
     })
     if (duplicate) {
-        console.log('Coursometer: duplicate lead, skipping', lead.phone)
+        console.log('Coursometer: duplicate lead, skipping', v.key, lead.phone)
         return { status: 'duplicate' }
     }
 
     // 2. Save the lead
-    const record = await db.create('Leads', {
-        'Name': lead.name,
-        'Phone': lead.phone,
-        'Phone Local': lead.phone_local,
-        'Intent': lead.intent,
-        'First Time': lead.first_time,
-        'Previous Score': lead.previous_score,
-        'Target Score': lead.target_score,
-        'Exam Date': lead.exam_date,
-        'Study Mode': lead.study_mode,
-        'Area': lead.area,
-        'Current Status': lead.current_status,
-        'Platform': lead.platform,
-        'UTM Source': lead.utm_source,
-        'UTM Medium': lead.utm_medium,
-        'UTM Campaign': lead.utm_campaign,
-        'UTM Content': lead.utm_content,
-        'UTM Term': lead.utm_term,
-        'GCLID': lead.gclid,
-        'FBCLID': lead.fbclid,
-        'TTCLID': lead.ttclid,
-        'Event ID': lead.event_id,
-        'Summary': lead.summary,
-        'Submitted At': lead.submitted_at,
-        'WhatsApp Sent': lead.whatsapp_sent,
-    })
+    const record = await db.create(v.leadsTable, leadRecordFields(lead))
 
-    // 3. Find the next eligible client
-    const client = await db.findOne('Clients', {
+    // 3. Find the next eligible client in this vertical
+    const client = await db.findOne(v.clientsTable, {
         view: 'Eligible',
         formula: `OR('${lead.intent}'='high', {Accepts Low Intent})`,
     })
@@ -428,14 +532,14 @@ async function processLead(lead) {
     if (!client) {
         await mail.send({
             to: mail.admin,
-            subject: `ליד בלי מכון זמין: ${lead.name}`,
+            subject: `${prefix}ליד בלי לקוח זמין: ${lead.name}`,
             html: alertEmailHtml(
-                'נכנס ליד ואין מכון זמין לקבל אותו',
-                'הליד נשמר ב-Airtable בלי שיוך. צריך לשייך אותו ידנית או להפעיל מכון.',
+                'נכנס ליד ואין לקוח זמין לקבל אותו',
+                'הליד נשמר ב-Airtable בלי שיוך. צריך לשייך אותו ידנית או להפעיל לקוח.',
                 lead
             ),
         })
-        await pauseSocialIfNoCapacity(db, mail, null)
+        await pauseSocialIfNoCapacity(db, mail, null, v)
         return { status: 'no_client' }
     }
 
@@ -443,8 +547,8 @@ async function processLead(lead) {
     const method = cf['Delivery Method'] || 'Email'
 
     // 4. Assign the lead and move the client to the end of the queue
-    await db.update('Leads', record.id, { 'Client': [client.id] })
-    await db.update('Clients', client.id, { 'Last Lead At': lead.submitted_at })
+    await db.update(v.leadsTable, record.id, { 'Client': [client.id] })
+    await db.update(v.clientsTable, client.id, { 'Last Lead At': lead.submitted_at })
 
     // 5. Deliver
     let delivered = false
@@ -452,7 +556,10 @@ async function processLead(lead) {
     if ((method === 'Email' || method === 'Both') && cf['Email']) {
         await mail.send({
             to: cf['Email'],
-            subject: `ליד חדש מקורסומטר: ${lead.name}`,
+            subject:
+                lead.vertical === 'bagrut'
+                    ? `ליד בגרויות חדש מקורסומטר: ${lead.name}`
+                    : `ליד חדש מקורסומטר: ${lead.name}`,
             html: clientEmailHtml(lead),
         })
         delivered = true
@@ -464,28 +571,16 @@ async function processLead(lead) {
             const crmRes = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: lead.name,
-                    phone: lead.phone_local,
-                    exam_date: lead.exam_date,
-                    first_time: lead.first_time,
-                    previous_score: lead.previous_score,
-                    target_score: lead.target_score,
-                    area: lead.area,
-                    current_status: lead.current_status,
-                    intent: lead.intent,
-                    lead_id: lead.event_id,
-                    source: 'Coursometer',
-                }),
+                body: JSON.stringify(crmPayload(lead)),
             })
             if (crmRes.ok) {
                 delivered = true
             } else {
                 await mail.send({
                     to: mail.admin,
-                    subject: `שליחה למערכת של מכון נכשלה: ${lead.name}`,
+                    subject: `${prefix}שליחה למערכת של לקוח נכשלה: ${lead.name}`,
                     html: alertEmailHtml(
-                        `השליחה למערכת של ${cf['Client Name'] || 'המכון'} נכשלה`,
+                        `השליחה למערכת של ${cf['Client Name'] || 'הלקוח'} נכשלה`,
                         `המערכת החזירה שגיאה ${crmRes.status}. צריך להעביר את הליד ידנית.`,
                         lead
                     ),
@@ -494,10 +589,10 @@ async function processLead(lead) {
         } else {
             await mail.send({
                 to: mail.admin,
-                subject: `למכון אין כתובת מערכת: ${lead.name}`,
+                subject: `${prefix}ללקוח אין כתובת מערכת: ${lead.name}`,
                 html: alertEmailHtml(
-                    `למכון ${cf['Client Name'] || ''} אין כתובת מערכת`,
-                    'המכון מוגדר לשליחה למערכת, אבל בטבלת המכונים אין לו כתובת. צריך להעביר את הליד ידנית.',
+                    `ללקוח ${cf['Client Name'] || ''} אין כתובת מערכת`,
+                    'הלקוח מוגדר לשליחה למערכת, אבל בטבלת הלקוחות אין לו כתובת. צריך להעביר את הליד ידנית.',
                     lead
                 ),
             })
@@ -506,7 +601,7 @@ async function processLead(lead) {
 
     // 6. Mark as sent
     if (delivered) {
-        await db.update('Leads', record.id, { 'Sent To Client': true })
+        await db.update(v.leadsTable, record.id, { 'Sent To Client': true })
     }
 
     // 7. Low package alert (to admin only)
@@ -515,10 +610,10 @@ async function processLead(lead) {
         if (Number.isFinite(remainingBefore)) {
             const remainingAfter = remainingBefore - 1
             if (remainingAfter === LOW_PACKAGE_THRESHOLD) {
-                const clientName = cf['Client Name'] || 'המכון'
+                const clientName = cf['Client Name'] || 'הלקוח'
                 await mail.send({
                     to: mail.admin,
-                    subject: `לחבילה של ${clientName} נשארו ${remainingAfter} לידים`,
+                    subject: `${prefix}לחבילה של ${clientName} נשארו ${remainingAfter} לידים`,
                     html: lowPackageEmailHtml(
                         clientName,
                         remainingAfter,
@@ -531,9 +626,10 @@ async function processLead(lead) {
         console.log('Coursometer low package alert failed:', err.message)
     }
 
-    // 8. If this lead closed the client's package, pause Meta and TikTok right away when no other client is free
+    // 8. If this lead closed the client's package, pause this vertical's Meta and TikTok
+    //    campaigns right away when no other client in this vertical is free
     if (Number.isFinite(remainingBefore) && remainingBefore - 1 <= 0) {
-        await pauseSocialIfNoCapacity(db, mail, client.id)
+        await pauseSocialIfNoCapacity(db, mail, client.id, v)
     }
 
     return { status: delivered ? 'sent' : 'not_delivered', client: cf['Client Name'] }
@@ -552,7 +648,6 @@ export default async function handler(req, res) {
     const authToken = process.env.TWILIO_AUTH_TOKEN
     const serviceSid = process.env.TWILIO_SERVICE_SID_COURSOMETER
     const waFrom = process.env.TWILIO_WA_FROM_COURSOMETER
-    const waTemplate = process.env.TWILIO_WA_TEMPLATE_COURSOMETER
 
     if (!accountSid || !authToken || !serviceSid) {
         console.log('Coursometer verify: missing env variables')
@@ -560,6 +655,8 @@ export default async function handler(req, res) {
     }
 
     const body = req.body || {}
+    const v = getVertical(body.vertical)
+    const waTemplate = process.env[v.waTemplateEnv]
     const phone = normalizeIsraeliMobile(body.phone)
     const code = String(body.code || '').replace(/\D/g, '')
     const answers = body.answers || {}
@@ -602,8 +699,13 @@ export default async function handler(req, res) {
         return res.status(200).json({ valid: false, error: 'wrong_code' })
     }
 
-    const examDate = findAnswer(answers, 'להיבחן')
-    const lowIntent = examDate.includes('מאוחר') || examDate.includes('לא החלטתי')
+    const isBagrut = v.key === 'bagrut'
+
+    // Intent: bagrut is low only for "עוד לא החלטתי"; psychometric is unchanged
+    const examDate = isBagrut ? findAnswer(answers, 'מועד') : findAnswer(answers, 'להיבחן')
+    const lowIntent = isBagrut
+        ? examDate.includes('לא החלטתי')
+        : examDate.includes('מאוחר') || examDate.includes('לא החלטתי')
     const intent = lowIntent ? 'low' : 'high'
 
     const name = findAnswer(answers, 'שם מלא')
@@ -619,17 +721,14 @@ export default async function handler(req, res) {
     })
 
     const lead = {
+        vertical: v.key,
         phone,
         phone_local: '0' + phone.slice(4),
         name,
         intent,
-        first_time: findAnswer(answers, 'הפעם הראשונה'),
-        previous_score: findAnswer(answers, 'הציון הקודם'),
-        target_score: findAnswer(answers, 'מכוו'),
         exam_date: examDate,
         study_mode: findAnswer(answers, 'ללמוד'),
         area: findAnswer(answers, 'אזור'),
-        current_status: findAnswer(answers, 'עושה כרגע'),
         utm_source: toText(attribution.utm_source),
         utm_medium: toText(attribution.utm_medium),
         utm_campaign: toText(attribution.utm_campaign),
@@ -644,8 +743,26 @@ export default async function handler(req, res) {
         submitted_at: new Date().toISOString(),
     }
 
-    let summary = `ליד חדש מאומת מקורסומטר\n`
-    summary += `סטטוס: ${intent === 'high' ? 'ליד חם' : 'מועד רחוק'}\n`
+    if (isBagrut) {
+        lead.looking_for = findAnswer(answers, 'מחפש')
+        lead.subjects = findAnswer(answers, 'מקצועות')
+        lead.math_units = findAnswer(answers, 'במתמטיקה')
+        lead.english_units = findAnswer(answers, 'באנגלית')
+    } else {
+        lead.first_time = findAnswer(answers, 'הפעם הראשונה')
+        lead.previous_score = findAnswer(answers, 'הציון הקודם')
+        lead.target_score = findAnswer(answers, 'מכוו')
+        lead.current_status = findAnswer(answers, 'עושה כרגע')
+    }
+
+    let summary = isBagrut
+        ? `ליד בגרויות חדש מאומת מקורסומטר\n`
+        : `ליד חדש מאומת מקורסומטר\n`
+    if (isBagrut) {
+        summary += `סטטוס: ${intent === 'high' ? 'ליד חם' : 'עוד לא החליט על מועד'}\n`
+    } else {
+        summary += `סטטוס: ${intent === 'high' ? 'ליד חם' : 'מועד רחוק'}\n`
+    }
     summary += `שם: ${lead.name}\nטלפון: ${lead.phone_local}\n\n`
     Object.keys(answers).forEach((key) => {
         summary += `${key}\n← ${toText(answers[key])}\n\n`
@@ -653,15 +770,15 @@ export default async function handler(req, res) {
     lead.summary = summary
 
     try {
-        const result = await processLead(lead)
-        console.log('Coursometer lead processed:', result.status, result.client || '')
+        const result = await processLead(lead, v)
+        console.log('Coursometer lead processed:', v.key, result.status, result.client || '')
     } catch (err) {
-        console.log('Coursometer lead processing error:', err.message)
+        console.log('Coursometer lead processing error:', v.key, err.message)
         try {
             const mail = mailer()
             await mail.send({
                 to: mail.admin,
-                subject: `תקלה בטיפול בליד: ${lead.name}`,
+                subject: `${v.subjectPrefix}תקלה בטיפול בליד: ${lead.name}`,
                 html: alertEmailHtml(
                     'הייתה תקלה בטיפול בליד',
                     `השגיאה: ${err.message}. צריך לבדוק את הליד ולטפל בו ידנית.`,
