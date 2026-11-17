@@ -1,9 +1,14 @@
 // /api/coursometer-meta-capi.js
 // Meta Conversions API endpoint - Coursometer only.
+// psychometric (default): same pixel and token as before.
+// bagrut: uses META_PIXEL_ID_COURSOMETER_BAGRUT + META_CAPI_TOKEN_COURSOMETER_BAGRUT.
+//         If either is missing, the event is skipped (never sent to the psychometric pixel).
 const crypto = require('crypto');
 
 const PIXEL_ID = '1104022719046538';
 const TOKEN = process.env.META_CAPI_TOKEN_COURSOMETER;
+const BAGRUT_PIXEL_ID = process.env.META_PIXEL_ID_COURSOMETER_BAGRUT;
+const BAGRUT_TOKEN = process.env.META_CAPI_TOKEN_COURSOMETER_BAGRUT;
 const ALLOWED_EVENTS = ['ViewContent', 'Contact', 'Lead'];
 
 function sha256(value) {
@@ -37,11 +42,6 @@ module.exports = async (req, res) => {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
-  if (!TOKEN) {
-    console.error('Coursometer CAPI: missing META_CAPI_TOKEN_COURSOMETER');
-    res.status(500).json({ error: 'Server not configured' });
-    return;
-  }
 
   try {
     let body = req.body || {};
@@ -51,6 +51,28 @@ module.exports = async (req, res) => {
       } catch {
         body = {};
       }
+    }
+
+    const isBagrut = body.vertical === 'bagrut';
+
+    let pixelId;
+    let token;
+    if (isBagrut) {
+      if (!BAGRUT_PIXEL_ID || !BAGRUT_TOKEN) {
+        console.log('Coursometer CAPI: bagrut pixel not configured, event skipped');
+        res.status(200).json({ skipped: true });
+        return;
+      }
+      pixelId = BAGRUT_PIXEL_ID;
+      token = BAGRUT_TOKEN;
+    } else {
+      if (!TOKEN) {
+        console.error('Coursometer CAPI: missing META_CAPI_TOKEN_COURSOMETER');
+        res.status(500).json({ error: 'Server not configured' });
+        return;
+      }
+      pixelId = PIXEL_ID;
+      token = TOKEN;
     }
 
     const {
@@ -89,10 +111,9 @@ module.exports = async (req, res) => {
       user_data.external_id = [hashed];
     }
 
-    const custom_data = {
-      content_name: 'psychometric',
-      content_category: 'psychometric_course',
-    };
+    const custom_data = isBagrut
+      ? { content_name: 'bagrut', content_category: 'bagrut_course' }
+      : { content_name: 'psychometric', content_category: 'psychometric_course' };
     if (customData && (customData.intent === 'high' || customData.intent === 'low')) {
       custom_data.intent = customData.intent;
     }
@@ -112,7 +133,7 @@ module.exports = async (req, res) => {
     };
 
     const response = await fetch(
-      `https://graph.facebook.com/v23.0/${PIXEL_ID}/events?access_token=${TOKEN}`,
+      `https://graph.facebook.com/v23.0/${pixelId}/events?access_token=${token}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -127,7 +148,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    console.log(`Coursometer CAPI success [${eventName}]:`, JSON.stringify(result));
+    console.log(`Coursometer CAPI success [${isBagrut ? 'bagrut' : 'psychometric'}] [${eventName}]:`, JSON.stringify(result));
     res.status(200).json({ success: true });
   } catch (err) {
     console.error('Coursometer CAPI handler error:', err);
