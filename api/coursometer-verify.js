@@ -31,7 +31,7 @@ const VERTICALS = {
     },
 }
 
-function getVertical(value) {
+export function getVertical(value) {
     return String(value || '').toLowerCase() === 'bagrut'
         ? VERTICALS.bagrut
         : VERTICALS.psychometric
@@ -43,7 +43,7 @@ function setCors(res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
-function normalizeIsraeliMobile(input) {
+export function normalizeIsraeliMobile(input) {
     if (!input) return null
     let d = String(input).replace(/\D/g, '')
     if (d.startsWith('00972')) d = d.slice(5)
@@ -53,7 +53,7 @@ function normalizeIsraeliMobile(input) {
     return '+972' + d
 }
 
-function toText(value) {
+export function toText(value) {
     if (value === null || value === undefined) return ''
     if (Array.isArray(value)) return value.map(toText).filter(Boolean).join(', ')
     if (typeof value === 'object') return JSON.stringify(value)
@@ -76,7 +76,7 @@ function escapeHtml(s) {
 
 /* ---------------- WhatsApp ---------------- */
 
-async function sendWhatsApp({ accountSid, authToken, from, templateSid, to, firstName }) {
+export async function sendWhatsApp({ accountSid, authToken, from, templateSid, to, firstName }) {
     if (!from || !templateSid) {
         console.log('Coursometer WhatsApp: missing env variables, skipping')
         return false
@@ -233,7 +233,7 @@ function crmPayload(lead) {
 
 /* ---------------- Email ---------------- */
 
-function mailer() {
+export function mailer() {
     const user = process.env.GMAIL_USER_COURSOMETER
     const pass = process.env.GMAIL_APP_PASSWORD_COURSOMETER
     if (!user || !pass) throw new Error('Gmail env variables missing')
@@ -291,7 +291,7 @@ function clientEmailHtml(lead) {
 </div>`
 }
 
-function alertEmailHtml(title, text, lead) {
+export function alertEmailHtml(title, text, lead) {
     return `<div dir="rtl" style="font-family: Arial, sans-serif; font-size: 15px; line-height: 1.7;">
 <h2 style="color:#DC2626;">${escapeHtml(title)}</h2>
 <p>${escapeHtml(text)}</p>
@@ -506,7 +506,7 @@ async function pauseSocialIfNoCapacity(db, mail, excludeClientId, v) {
 
 /* ---------------- Lead processing ---------------- */
 
-async function processLead(lead, v) {
+export async function processLead(lead, v) {
     const db = airtable()
     const mail = mailer()
     const prefix = v.subjectPrefix
