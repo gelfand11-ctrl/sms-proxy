@@ -62,12 +62,33 @@ const EXAM_SEASONS = [
     { key: 'סתיו', month: 9, label: (y) => `סתיו - ספטמבר ${y}` },
 ]
 
+function israelNow() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }))
+}
+
 function examDateWithYear(answer) {
     const season = EXAM_SEASONS.find((s) => answer.includes(s.key))
     if (!season) return answer
-    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }))
+    const now = israelNow()
     const year = season.month >= now.getMonth() + 1 ? now.getFullYear() : now.getFullYear() + 1
     return season.label(year)
+}
+
+// Bagrut has two sittings. Written exactly like the Tally answers:
+// "חורף (דצמבר 2026 - פברואר 2027)" and "קיץ 2027"
+function bagrutExamDateWithYear(answer) {
+    const now = israelNow()
+    const month = now.getMonth() + 1
+    const year = now.getFullYear()
+    if (answer.includes('חורף')) {
+        // Jan-Feb still belong to the winter sitting that started last December
+        const start = month <= 2 ? year - 1 : year
+        return `חורף (דצמבר ${start} - פברואר ${start + 1})`
+    }
+    if (answer.includes('קיץ')) {
+        return `קיץ ${month <= 7 ? year : year + 1}`
+    }
+    return answer
 }
 
 async function fetchLead(leadgenId, token) {
@@ -123,9 +144,9 @@ async function handleLeadgen(change) {
         return
     }
 
-    const examDate = examDateWithYear(
-        isBagrut ? findAnswer(answers, 'מועד') : findAnswer(answers, 'להיבחן')
-    )
+    const examDate = isBagrut
+        ? bagrutExamDateWithYear(findAnswer(answers, 'מועד'))
+        : examDateWithYear(findAnswer(answers, 'להיבחן'))
     const lowIntent = isBagrut
         ? examDate.includes('לא החלטתי')
         : examDate.includes('מאוחר') || examDate.includes('לא החלטתי')
